@@ -1,0 +1,104 @@
+<!DOCTYPE html><html lang="id"><head><meta charset="utf-8"><title>Admin</title><meta name="robots" content="noindex">
+<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="style.css"></head><body>
+<header><h1>Admin Katalog</h1><nav><a href="index.html">Katalog</a><a href="admin.html" class="on">Admin</a></nav></header>
+<main><div id="st" class="note" style="padding:4px"></div><div id="app"><div class="note">Memuat…</div></div></main>
+<script src="common.js"></script>
+<script>
+const root=document.getElementById('app'),st=document.getElementById('st');
+let cfg=null;try{cfg=JSON.parse(localStorage.getItem('gh')||'null')}catch(_){}
+const EMPTY=()=>({store:'Katalog Produk',categories:[],products:[]});
+let D=EMPTY(),editing=null,img=null;
+const rid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const enc=o=>{const b=new TextEncoder().encode(JSON.stringify(o,null,1));let s='';for(let i=0;i<b.length;i+=8192)s+=String.fromCharCode(...b.subarray(i,i+8192));return btoa(s)};
+const dec=b=>JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b),c=>c.charCodeAt(0))));
+const b64=blob=>new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(r.result.split(',')[1]);r.onerror=no;r.readAsDataURL(blob)});
+async function gh(path,opt={}){
+ const res=await fetch('https://api.github.com/repos/'+cfg.o+'/'+cfg.r+path,{...opt,headers:{Authorization:'Bearer '+cfg.t,Accept:'application/vnd.github+json','Content-Type':'application/json'}});
+ if(!res.ok){let m='';try{m=(await res.json()).message}catch(_){}
+  throw Object.assign(new Error(res.status===401?'Token tidak valid atau kedaluwarsa.':(res.status===403||res.status===404)&&!opt.quiet?'Akses ditolak atau repo tidak ditemukan. Cek token (izin Contents: Read and write) dan nama repo. ('+m+')':m||'Gagal'),{status:res.status})}
+ return res.status===204?null:res.json()}
+async function getFile(){try{return await gh('/contents/data/products.json?ref='+encodeURIComponent(cfg.b),{quiet:true})}catch(e){if(e.status===404)return null;throw e}}
+const put=(path,content,sha,msg)=>gh('/contents/'+path,{method:'PUT',body:JSON.stringify({message:msg,content,branch:cfg.b,...(sha?{sha}:{})})});
+async function mutate(fn,msg){
+ for(let i=0;i<2;i++){try{const f=await getFile(),d=f?dec(f.content):EMPTY();fn(d);await put('data/products.json',enc(d),f&&f.sha,msg);D=d;return}
+  catch(e){if((e.status!==409&&e.status!==422)||i)throw e}}}
+async function delImg(n){if(!n)return;try{const f=await gh('/contents/images/'+n+'?ref='+encodeURIComponent(cfg.b),{quiet:true});
+ await gh('/contents/images/'+n,{method:'DELETE',body:JSON.stringify({message:'Hapus foto',sha:f.sha,branch:cfg.b})})}catch(_){}}
+async function act(fn){st.textContent='Menyimpan ke GitHub…';
+ try{await fn();render();st.textContent='Tersimpan. Perubahan tampil di situs publik sekitar 1 menit.'}catch(e){st.textContent='';alert(e.message)}}
+function shrink(file){return new Promise((ok,no)=>{const im=new Image(),u=URL.createObjectURL(file);
+ im.onload=()=>{const r=Math.min(1,900/Math.max(im.width,im.height)),c=document.createElement('canvas');
+  c.width=Math.round(im.width*r);c.height=Math.round(im.height*r);c.getContext('2d').drawImage(im,0,0,c.width,c.height);
+  c.toBlob(b=>b?ok(b):no(),'image/jpeg',.8)};im.onerror=no;im.src=u})}
+const catName=id=>(D.categories.find(c=>c.id==id)||{}).name||'Tanpa kategori';
+
+function loginView(){
+ const m0=location.hostname.match(/^(.+)\.github\.io$/);let guess='';
+ if(m0){const seg=location.pathname.split('/')[1];guess=m0[1]+'/'+(seg&&!seg.endsWith('.html')?seg:m0[1]+'.github.io')}
+ const r=h('input',{value:guess,placeholder:'username/nama-repo'}),t=h('input',{type:'password',placeholder:'github_pat_…',autocomplete:'off'}),m=h('div',{class:'note'});
+ const go=async()=>{
+  const [o,rp]=r.value.trim().split('/');if(!o||!rp||!t.value.trim()){m.textContent='Isi repo (username/nama-repo) dan token.';return}
+  cfg={o,r:rp,t:t.value.trim(),b:'main'};m.textContent='Memeriksa…';
+  try{const j=await gh('');if(!j.permissions||!j.permissions.push)throw new Error('Token ini tidak punya izin menulis ke repo.');
+   cfg.b=j.default_branch;localStorage.setItem('gh',JSON.stringify(cfg));start()}catch(e){cfg=null;m.textContent=e.message}};
+ t.addEventListener('keydown',e=>{if(e.key==='Enter')go()});
+ root.replaceChildren(h('div',{class:'panel',style:'max-width:420px;margin-top:30px'},h('h2',{},'Login Admin'),
+  h('div',{class:'form'},h('div',{},h('label',{},'Repository GitHub'),r),h('div',{},h('label',{},'Personal Access Token'),t),
+   h('button',{class:'btn',on:{click:go}},'Masuk'),m,
+   h('div',{class:'note',style:'padding:0;font-size:.8rem'},'Token tersimpan hanya di browser ini. Jangan dipakai di komputer umum.'))))}
+
+function catPanel(){
+ const rows=D.categories.map(c=>{const i=h('input',{value:c.name});
+  return h('div',{class:'row'},i,h('button',{class:'btn ghost',on:{click:()=>i.value.trim()&&act(()=>mutate(d=>{d.categories.find(x=>x.id===c.id).name=i.value.trim()},'Ubah kategori'))}},'Simpan'),
+   h('button',{class:'btn del',on:{click:()=>confirm('Hapus kategori ini? Produknya menjadi "Tanpa kategori".')&&act(()=>mutate(d=>{d.categories=d.categories.filter(x=>x.id!==c.id);d.products.forEach(p=>{if(p.category_id===c.id)p.category_id=''})},'Hapus kategori'))}},'Hapus'))});
+ const n=h('input',{placeholder:'Nama kategori baru'});
+ return h('section',{class:'panel'},h('h2',{},'Kategori'),...rows,
+  h('div',{class:'row'},n,h('button',{class:'btn',on:{click:()=>n.value.trim()&&act(()=>mutate(d=>{d.categories.push({id:rid(),name:n.value.trim()})},'Tambah kategori'))}},'Tambah')))}
+
+function prodPanel(){
+ if(editing===null)return h('section',{class:'panel'},h('button',{class:'btn',on:{click:()=>{editing=0;img=null;render()}}},'+ Tambah produk'));
+ const p=D.products.find(x=>x.id===editing)||{name:'',description:'',category_id:'',image:''};
+ const n=h('input',{value:p.name}),d=h('textarea',{rows:4,value:p.description}),m=h('div',{class:'note'},''),
+  c=h('select',{},h('option',{value:''},'Tanpa kategori'),...D.categories.map(x=>h('option',{value:x.id,selected:x.id===p.category_id},x.name))),
+  pv=h('img',{class:'pv',alt:''});
+ if(p.image)pv.src='images/'+p.image;else pv.hidden=true;
+ const fi=h('input',{type:'file',accept:'image/*',on:{change:async e=>{const x=e.target.files[0];if(!x)return;
+  try{img=await shrink(x);pv.src=URL.createObjectURL(img);pv.hidden=false}catch(_){m.textContent='Foto tidak bisa dibaca.'}}}});
+ const sv=h('button',{class:'btn',on:{click:async()=>{
+  if(!n.value.trim()){m.textContent='Nama barang wajib diisi.';return}
+  sv.disabled=true;m.textContent='Menyimpan ke GitHub…';
+  try{let fname='',old='';
+   if(img){fname=rid()+'.jpg';await put('images/'+fname,await b64(img),null,'Unggah foto')}
+   await mutate(dd=>{const v={name:n.value.trim(),description:d.value.trim(),category_id:c.value};
+    if(editing){const q=dd.products.find(x=>x.id===editing);if(!q)throw new Error('Produk tidak ditemukan.');old=q.image;Object.assign(q,v);if(fname)q.image=fname}
+    else dd.products.unshift({id:rid(),...v,image:fname})},'Simpan produk');
+   if(fname&&old)delImg(old);
+   editing=null;img=null;render();st.textContent='Tersimpan. Perubahan tampil di situs publik sekitar 1 menit.'}
+  catch(e){m.textContent=e.message;sv.disabled=false}}}},'Simpan produk');
+ return h('section',{class:'panel'},h('h2',{},editing?'Ubah produk':'Produk baru'),h('div',{class:'form'},
+  h('div',{},h('label',{},'Nama barang'),n),h('div',{},h('label',{},'Kategori'),c),h('div',{},h('label',{},'Deskripsi'),d),
+  h('div',{class:'row'},pv,h('div',{style:'flex:1'},h('label',{},'Foto barang'),fi)),
+  h('div',{class:'row'},sv,h('button',{class:'btn ghost',on:{click:()=>{editing=null;img=null;render()}}},'Batal')),m))}
+
+function listPanel(){
+ return h('section',{class:'panel'},h('h2',{},'Semua produk ('+D.products.length+')'),
+  ...D.products.map(p=>h('div',{class:'item'},h('div',{class:'ph'},p.image?h('img',{src:'images/'+p.image,alt:''}):'—'),
+   h('div',{class:'t'},h('b',{},p.name),h('span',{},catName(p.category_id))),
+   h('button',{class:'btn ghost',on:{click:()=>{editing=p.id;img=null;render();scrollTo(0,0)}}},'Ubah'),
+   h('button',{class:'btn del',on:{click:()=>confirm('Hapus produk ini?')&&act(async()=>{let old='';await mutate(d=>{const q=d.products.find(x=>x.id===p.id);old=q?q.image:'';d.products=d.products.filter(x=>x.id!==p.id)},'Hapus produk');delImg(old)})}},'Hapus'))),
+  D.products.length?'':h('div',{class:'note'},'Belum ada produk.'))}
+
+function storePanel(){
+ const i=h('input',{value:D.store});
+ return h('section',{class:'panel'},h('h2',{},'Nama Toko'),h('div',{class:'row'},i,h('button',{class:'btn',on:{click:()=>i.value.trim()&&act(()=>mutate(d=>{d.store=i.value.trim()},'Ubah nama toko'))}},'Simpan')))}
+
+function render(){root.replaceChildren(
+ h('div',{class:'row between'},h('b',{},cfg.o+'/'+cfg.r),h('button',{class:'btn ghost',on:{click:()=>{localStorage.removeItem('gh');location.reload()}}},'Keluar')),
+ catPanel(),prodPanel(),listPanel(),storePanel())}
+
+async function start(){
+ root.innerHTML='<div class="note">Memuat data…</div>';
+ try{const f=await getFile();D=f?dec(f.content):EMPTY();render()}
+ catch(e){st.textContent=e.message;localStorage.removeItem('gh');cfg=null;loginView()}}
+if(cfg&&cfg.t)start();else loginView();
+</script></body></html>

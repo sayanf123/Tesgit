@@ -1,0 +1,19 @@
+<!DOCTYPE html><html lang="id"><head><meta charset="utf-8"><title>Katalog Produk</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="style.css"></head><body>
+<header><h1 id="st">Katalog Produk</h1><nav><a href="index.html" class="on">Katalog</a><a href="admin.html">Admin</a></nav></header>
+<main id="app"><div class="note">Memuat…</div></main>
+<script src="common.js"></script>
+<script>
+let D={categories:[],products:[]},f='all',q='';
+const app=document.getElementById('app');
+function show(){
+ const list=D.products.filter(p=>(f==='all'||p.category_id==f)&&(!q||(p.name+' '+p.description).toLowerCase().includes(q.toLowerCase())));
+ const qi=h('input',{type:'search',placeholder:'Cari barang…',value:q,on:{input:e=>{q=e.target.value;show();const n=app.querySelector('input');n.focus();n.setSelectionRange(q.length,q.length)}}});
+ const chip=(id,t)=>h('button',{class:'chip'+(f==id?' on':''),on:{click:()=>{f=id;show()}}},t);
+ app.replaceChildren(h('div',{class:'bar'},chip('all','Semua'),...D.categories.map(c=>chip(c.id,c.name)),qi),
+  list.length?h('div',{class:'grid'},...list.map(p=>{const c=D.categories.find(x=>x.id==p.category_id);
+   return h('article',{class:'card'},h('div',{class:'ph'},p.image?h('img',{src:'images/'+p.image,alt:p.name,loading:'lazy'}):'Tanpa foto'),
+    h('div',{class:'cb'},h('div',{class:'tag'},c?c.name:'Tanpa kategori'),h('h3',{},p.name),h('p',{},p.description)))})):h('div',{class:'note'},D.products.length?'Tidak ada barang yang cocok.':'Belum ada produk.'));
+}
+fetch('data/products.json?v='+Date.now()).then(r=>r.json()).then(d=>{D=d;document.title=d.store;document.getElementById('st').textContent=d.store;show()}).catch(()=>app.textContent='Gagal memuat katalog.');
+</script></body></html>
